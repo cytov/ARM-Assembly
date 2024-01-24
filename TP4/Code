@@ -1,0 +1,274 @@
+SECTION INTVEC
+; -----------------------------------------------------------------------
+; Partie 1. Table des vecteurs d'interruption
+; -----------------------------------------------------------------------
+
+B       initialisation        ; Reset
+; ÉCRIVEZ ICI LE RESTE DE LA TABLE DES VECTEURS D'INTERRUPTION
+
+;Instruction indefinie
+NOP
+
+;Interruption logicielle
+NOP
+
+;Prefetch abort
+NOP
+
+;Data abort
+NOP
+
+;Espace reserve
+NOP
+
+;IRQ
+NOP
+
+;FIQ
+B monInterruption
+
+; FIN DE LA TABLE DES VECTEURS D'INTERRUPTION
+
+ProcessusEnCours    ASSIGN32     1  ; Contient le numéro du processus en cours
+
+VariableInconnueP1    ASSIGN32     0x01
+VariableInconnueP2    ASSIGN32     0x02
+
+SECTION CODE
+; -----------------------------------------------------------------------
+; Partie 3. Routine de traitement de l'interruption
+; -----------------------------------------------------------------------
+monInterruption
+; Dans cette interruption, les registres R8 à R15 sont
+; distincts de ceux utilisés par les processus (ils sont
+; dans une banque de registre différente). Toutefois, les
+; registres R0 à R7 sont partagés.
+; Vous pouvez donc utiliser les registres R8 à R15 sans
+; les sauvegarder préalablement, mais vous DEVEZ sauvegarder la
+; valeur des registres R0 à R7 inclusivement, l'adresse de retour
+; et les drapeaux de l'ALU.
+;
+; On ne peut pas directement sauvegarder les drapeaux, mais
+; on peut les transférer dans un registre en utilisant l'instruction
+; MRS Rx, SPSR (remplacez x par le numéro du registre voulu)
+; Une fois en possession d'un registre contenant la valeur des drapeaux,
+; on peut l'envoyer sur la pile pour sauvegarder ces derniers
+;
+; De même, on peut transférer un registre général dans le registre
+; des drapeaux en utilisant l'instruction
+; MSR SPSR, Ry (remplacez y par le numéro du registre voulu)
+; ATTENTION : les deux instructions (pour écrire et pour lire les drapeaux)
+; sont DIFFÉRENTES (dans un cas c'est MSR, dans l'autre MRS)
+;
+; Lorsqu'une interruption est déclenchée, le processeur termine l'exécution
+; de l'instruction courante, puis transfère automatiquement le PC courant dans
+; le registre LR (et non pas l'adresse de retour comme avec BL).
+; C'est donc ce registre que vous devez utiliser lorsque vous voulez
+; sauvegarder la position de l'instruction courante dans chaque processus.
+; N'oubliez toutefois pas que la valeur de PC correspond à l'adresse de
+; l'instruction courante PLUS 8!
+;
+; Étant donnée que les interruptions surviennent à tous les 90 cycles,
+; votre interruption ne doit jamais demander plus de 80 cycles environ,
+; sinon les processus n'auront même pas le temps de s'exécuter avant
+; le déclenchement de la prochaine interruption!
+
+
+; ÉCRIVEZ VOTRE CODE D'INTERRUPTION ICI
+LDR R8, ProcessusEnCours
+CMP R8, #1
+
+LDR SP, =PileP2
+LDREQ SP, =PileP1
+ADD SP, SP, #40
+
+PUSH {LR}
+MRS R9, SPSR 
+PUSH {R9}
+PUSH {R0-R7}
+
+LDR SP, =PileP1
+LDREQ SP, =PileP2
+
+POP {R0-R7}
+POP {R9}
+MSR SPSR, R9
+POP {LR}
+
+EOR R8, R8, #3
+LDR R10, =ProcessusEnCours
+STR R8, [R10]
+
+SUBS PC, LR, #4 
+
+
+; FIN DE VOTRE CODE D'INTERRUPTION
+SUBS PC, LR, #4     ; On saute à PC-4 (ne pas oublier le +8 du prefetch!)
+                    ; pour restaurer l'exécution du processus
+                    ; Le S combiné au registre PC comme destination
+                    ; est requis pour indiquer au processeur
+                    ; la fin du traitement de l'interruption et
+                    ; réactiver les interruptions dans le CPSR
+
+
+main
+initialisation
+MOV R7, #16         ; Ce registre sera utilisé pour indiquer une erreur
+                    ; ne pas y toucher, sauf pour le sauvegarder!
+
+; Ne pas effacer cette ligne: ${TEST_TVI}
+
+; -----------------------------------------------------------------------
+; Partie 2. Initialisation du système et des processus
+; -----------------------------------------------------------------------
+;
+; Ici, vous avez 2 étapes à effectuer :
+; 1. Initialiser la pile du processus 1
+; 2. Initialiser la pile du processus 2
+
+; Pour ce faire, utilisez la fonction initialiseProcessus, qui fait 
+; tout le travail pour vous. Vous n'avez qu'à l'appeler avec les
+; bons paramètres. (voyez sa documentation pour plus de détails)
+
+; ÉCRIVEZ VOTRE CODE D'INITIALISATION ICI
+LDR SP, =PileP1
+MRS R1, CPSR ;On peut modifier les valeurs de CPSR manuellement avant cette instruction
+LDR R2, =processus1
+MOV R3, #8
+
+BL initialiserProcessus
+
+LDR SP, =PileP2
+MRS R1, CPSR ;On peut modifier les valeurs de CPSR manuellement avant cette instruction
+LDR R2, =processus2
+MOV R3, #8
+
+BL initialiserProcessus
+
+; FIN DE VOTRE CODE D'INITIALISATION
+; Ne pas effacer cette ligne: ${TEST_INIT_P0}
+; Ne pas effacer cette ligne: ${TEST_INIT_P1}
+
+; On débute l'exécution du processus 1
+B processus1           
+
+initialiserProcessus
+; SP : Adresse de la pile du processus
+; R1 : État des drapeaux souhaité au début de l'exécution du processus
+; R2 : Adresse de la première instruction du processus
+; R3 : Nombre de registres généraux à stocker dans la pile
+; ATTENTION : CETTE FONCTION MODIFIE LES VALEURS DES REGISTRES SP, R3, R2
+; et R11 SANS LES SAUVEGARDER!
+
+ADD SP, SP, #40 ; On va au sommet de la pile
+ADD R2, R2, #4  ; Pour correspondre à la valeur que le processeur écrit
+                ; dans LR lorsqu'une interruption est déclenchée, on fait
+                ; pointer LR sur la deuxième instruction du processus
+PUSH {R2}       ; On stocke d'abord l'adresse de retour au dessus de la pile
+PUSH {R1}       ; Puis on stocke les drapeaux de l'ALU
+MOV R11, #0
+CMP R3, #0      ; On fait la boucle 'R3' fois
+boucleInitialisation
+BXEQ LR
+PUSH {R11}      ; On stocke 0 sur la pile à chaque itération
+SUBS R3, R3, #1
+B boucleInitialisation
+
+
+
+; Code des processus à exécuter, chaque processus boucle à l'infini
+; Vous n'avez pas à comprendre leur fonctionnement
+; Toutefois, ils sont conçus pour mettre dans R7 une valeur
+; différente de zéro (0) lorsqu'il y a une erreur dans votre
+; code. Vous devriez être capable d'exécuter plusieurs centaines
+; de cycles en obtenant une valeur finale de R7 de 0.
+; Il est normal que cette valeur soit non nulle au départ,
+; mais devrait devenir nulle (et le rester) après l'exécution de la
+; première instruction de chaque processus.
+
+MOV R7, #64
+processus1
+; Initialisation
+AND R7, R7, #0x40
+LDR R0, =VariableInconnueP1
+MOV R1, #0x00
+STR R1, [R0]
+MOV R0, #0
+MOV R1, #0
+MOV R2, #1
+MOV R3, #64
+MOV R4, #0
+MOV R5, #0
+MOV R6, #0
+; Boucle infinie
+boucleP1
+ADD R0, R0, #1
+ADD R1, R1, #2
+ADD R2, R1, #10
+SUBS R3, R3, #1
+MOVEQ R0, #0
+MOVEQ R1, #0
+MOV R0, R0
+MOV R1, R1
+MOVEQ R3, #32
+
+; Vérification d'erreurs potentielles
+CMP R4, #0
+ORRNE R7, R7, #1
+CMP R5, #0
+ORRNE R7, R7, #1
+CMP R6, #0
+ORRNE R7, R7, #1
+CMP R3, #0
+ORRLT R7, R7, #8
+
+; Ne pas enlever cette ligne: ${TEST_P0}
+B boucleP1
+
+
+MOV R7, #128
+processus2
+; Initialisation
+AND R7, R7, #0x80
+LDR R0, =VariableInconnueP2
+MOV R1, #0x00
+STR R1, [R0]
+MOV R4, #-1
+MOV R5, #-2
+MOV R6, #0
+; Boucle infinie
+boucleP2
+SUB R4, R4, #1
+SUB R5, R5, #2
+ADD R6, R6, #1
+CMP R6, #64
+MOVEQ R4, #-1
+MOVEQ R5, #-2
+MOV R4, R4
+MOV R5, R5
+MOVEQ R6, #0
+
+; Vérification d'erreurs potentielles
+CMP R0, #0
+ORRNE R7, R7, #2
+CMP R1, #0
+ORRNE R7, R7, #2
+CMP R2, #0
+ORRNE R7, R7, #2
+CMP R6, #96
+ORRGT R7, R7, #4
+
+; Ne pas enlever cette ligne: ${TEST_P1}
+B boucleP2
+
+
+SECTION DATA
+; Déclaration des piles
+; Chaque pile doit pouvoir contenir 10 valeurs de 4 octets, soit :
+;       - 8 registres (de R0 à R7 inclusivement)
+;       - Les drapeaux (équivalent à un registre)
+;       - L'adresse de l'instruction courante (PC)
+PileP1 ALLOC32    10    ; Espace pour la pile du processus 1
+PileP2 ALLOC32    10    ; Espace pour la pile du processus 2
+
+; Ne pas enlever cette ligne: ${TEST_DATA}
